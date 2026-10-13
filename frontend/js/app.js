@@ -1,0 +1,555 @@
+(() => {
+  'use strict';
+
+  const API_BASE = 'http://127.0.0.1:5000';
+  const $ = (id) => document.getElementById(id);
+
+  const input = $('media-file');
+  const dropzone = $('dropzone');
+  const fileInfo = $('file-info');
+  const transcribeButton = $('transcribe-button');
+  const output = $('transcript-output');
+  const copyButton = $('copy-button');
+  const downloadButton = $('download-button');
+  const clearButton = $('clear-button');
+  const progressFill = $('progress-fill');
+
+  let selectedFile = null;
+  let processing = false;
+  let lastSelectedRuntime = '';
+
+  const sleep = (ms) =>
+    new Promise((resolve) => window.setTimeout(resolve, ms));
+
+  function formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes < 0) {
+      return 'Tamaño desconocido';
+    }
+
+    if (bytes < 1024) return `${bytes} B`;
+
+    const units = ['KB', 'MB', 'GB'];
+    let size = bytes / 1024;
+    let index = 0;
+
+    while (size >= 1024 && index < units.length - 1) {
+      size /= 1024;
+      index++;
+    }
+
+    return `${size.toFixed(1)} ${units[index]}`;
+  }
+
+  function log(message, type = 'INFO') {
+    const logOutput = $('log-output');
+    if (!logOutput) return;
+
+    const row = document.createElement('p');
+    const label = document.createElement('span');
+
+    label.className = 'log-time';
+    label.textContent = `[${type}] `;
+
+    row.append(label, document.createTextNode(message));
+    logOutput.appendChild(row);
+    logOutput.scrollTop = logOutput.scrollHeight;
+  }
+
+  function setProgress(percent, note, indeterminate = false) {
+    const value = Math.max(0, Math.min(100, Number(percent) || 0));
+
+    $('progress-text').textContent =
+      indeterminate ? '…' : `${Math.round(value)}%`;
+
+    $('progress-track').setAttribute(
+      'aria-valuenow',
+      String(Math.round(value))
+    );
+
+    if (progressFill) {
+      progressFill.classList.toggle(
+        'indeterminate',
+        Boolean(indeterminate)
+      );
+
+      progressFill.style.width =
+        indeterminate ? '28%' : `${value}%`;
+    }
+
+    if (note) {
+      $('progress-note').textContent = note;
+    }
+  }
+
+  function updateWordCount() {
+    const text = output.value.trim();
+    const count = text ? text.split(/\s+/).length : 0;
+
+    $('word-count').textContent =
+      `${count.toLocaleString('es-MX')} ` +
+      `${count === 1 ? 'palabra' : 'palabras'}`;
+
+    copyButton.disabled = count === 0;
+    downloadButton.disabled = count === 0;
+  }
+
+  function setBusy(busy) {
+    processing = busy;
+
+    transcribeButton.disabled = busy || !selectedFile;
+    input.disabled = busy;
+    clearButton.disabled = busy;
+    $('model-choice').disabled = busy;
+    $('language-choice').disabled = busy;
+    $('remove-file').disabled = busy;
+  }
+
+  function setFile(file) {
+    if (!file) return;
+
+    selectedFile = file;
+
+    $('file-name').textContent = file.name;
+    $('file-size').textContent = formatBytes(file.size);
+
+    fileInfo.hidden = false;
+    dropzone.classList.add('has-file');
+
+    transcribeButton.disabled = processing;
+
+    $('result-meta').textContent =
+      `ARCHIVO SELECCIONADO: ${file.name}`;
+
+    $('system-status').textContent = 'ARCHIVO CARGADO';
+    $('progress-stage').textContent = 'LISTO';
+
+    setProgress(0, 'Archivo listo. Pulsa INICIAR TRANSCRIPCIÓN.');
+
+    log(
+      `Archivo seleccionado: ${file.name} (${formatBytes(file.size)}).`
+    );
+  }
+
+  async function checkBackend() {
+    try {
+      const response = await fetch(`${API_BASE}/api/health`, {
+        cache: 'no-store'
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (!data.whisper_available) {
+        throw new Error(
+          'faster-whisper no está disponible en Python.'
+        );
+      }
+
+      $('system-status').textContent = 'BACKEND CONECTADO';
+
+      if (data.cuda_available) {
+        log(
+          `Backend conectado. CUDA disponible: ` +
+          `${data.cuda_device_count || 1} dispositivo(s).`,
+          'OK'
+        );
+      } else if (data.cuda_runtime_reason) {
+        log(
+          `CUDA no está disponible: ${data.cuda_runtime_reason}. ` +
+          'Se utilizará el modo CPU si el backend lo admite.',
+          'WARN'
+        );
+      } else {
+        log(
+          'Backend conectado. El servidor informará del modo de procesamiento.',
+          'OK'
+        );
+      }
+    } catch (error) {
+      $('system-status').textContent = 'BACKEND DESCONECTADO';
+
+      log(
+        `No se pudo conectar con Flask: ${error.message}. ` +
+        'Comprueba que backend/app.py esté ejecutándose.',
+        'WARN'
+      );
+    }
+  }
+
+  // Sube el archivo mostrando el progreso real de la transferencia.
+  function uploadForJob(form) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+
+      xhr.open('POST', `${API_BASE}/api/transcribe`);
+      xhr.timeout = 0;
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && event.total > 0) {
+          const ratio = event.loaded / event.total;
+
+          setProgress(
+            ratio * 10,
+            `Subiendo archivo: ${Math.round(ratio * 100)}% ` +
+            `(${formatBytes(event.loaded)} de ${formatBytes(event.total)}).`
+          );
+        } else {
+          setProgress(
+            5,
+            'Subiendo archivo al backend local…',
+            true
+          );
+        }
+      };
+
+      xhr.onerror = () => {
+        reject(
+          new Error(
+            'No se pudo enviar el archivo. ' +
+            'Comprueba que Flask siga ejecutándose.'
+          )
+        );
+      };
+
+      xhr.onabort = () => {
+        reject(new Error('La subida del archivo fue cancelada.'));
+      };
+
+      xhr.onload = () => {
+        let data = {};
+
+        try {
+          data = JSON.parse(xhr.responseText || '{}');
+        } catch (_) {
+          // Se informa del estado HTTP si la respuesta no es JSON.
+        }
+
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(data);
+        } else {
+          reject(
+            new Error(
+              data.error ||
+              `El servidor respondió HTTP ${xhr.status}.`
+            )
+          );
+        }
+      };
+
+      xhr.send(form);
+    });
+  }
+
+  // Consulta periódicamente el estado del trabajo y recibe segmentos.
+  async function pollJob(jobId) {
+    let receivedSegments = 0;
+
+    while (true) {
+      const url =
+        `${API_BASE}/api/jobs/${encodeURIComponent(jobId)}` +
+        `?after=${receivedSegments}`;
+
+      const response = await fetch(url, {
+        cache: 'no-store'
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+          `No se pudo consultar el trabajo (HTTP ${response.status}).`
+        );
+      }
+
+      const segments = Array.isArray(data.segments)
+        ? data.segments
+        : [];
+
+      if (segments.length > 0) {
+        output.value +=
+          `${output.value ? '\n' : ''}${segments.join('\n')}`;
+
+        receivedSegments += segments.length;
+        updateWordCount();
+
+        // Desplaza la vista hacia el texto más reciente.
+        output.scrollTop = output.scrollHeight;
+      }
+
+      const stage = data.stage || data.status || 'processing';
+
+      const stageLabels = {
+        queued: 'EN COLA',
+        loading_model: 'CARGA DEL MODELO',
+        transcribing: 'TRANSCRIPCIÓN',
+        saving: 'GUARDANDO TXT',
+        done: 'COMPLETADO',
+        error: 'ERROR'
+      };
+
+      const statusLabels = {
+        queued: 'EN ESPERA',
+        loading_model: 'CARGANDO MODELO',
+        transcribing: 'TRANSCRIBIENDO',
+        saving: 'GUARDANDO TXT',
+        done: 'TRANSCRIPCIÓN COMPLETA',
+        error: 'ERROR DE TRANSCRIPCIÓN'
+      };
+
+      $('progress-stage').textContent =
+        stageLabels[stage] || 'PROCESANDO';
+
+      $('system-status').textContent =
+        statusLabels[stage] || 'PROCESANDO';
+
+      const note = data.note || 'Procesando…';
+
+      if (data.progress_indeterminate) {
+        setProgress(data.progress, note, true);
+      } else {
+        setProgress(data.progress, note, false);
+      }
+
+      const runtime =
+        data.effective_model && data.device
+          ? `${data.effective_model} en ${data.device} ` +
+            `(${data.compute_type || 'modo automático'})`
+          : '';
+
+      if (runtime && runtime !== lastSelectedRuntime) {
+        lastSelectedRuntime = runtime;
+
+        log(
+          `Configuración efectiva: ${runtime}.`,
+          'OK'
+        );
+      }
+
+      if (stage === 'error' || data.status === 'error') {
+        throw new Error(
+          data.error || note || 'La transcripción no se completó.'
+        );
+      }
+
+      if (stage === 'done' || data.status === 'done') {
+        output.value = data.transcript || output.value;
+        updateWordCount();
+
+        setProgress(
+          100,
+          `Transcripción completada. ` +
+          `Duración detectada: ${data.duration || 'no disponible'}.`
+        );
+
+        const languageText = data.language
+          ? ` · Idioma detectado: ${data.language}`
+          : '';
+
+        $('result-meta').textContent =
+          `COMPLETADO: ${data.filename || selectedFile.name}` +
+          `${languageText} · ${runtime || 'modelo procesado'}`;
+
+        log(
+          `Transcripción completada. Archivo de resultado: ` +
+          `${data.saved_as || 'TXT listo'}.`,
+          'OK'
+        );
+
+        log(
+          `${$('word-count').textContent}. ` +
+          `Duración de voz: ${data.duration || 'no disponible'}.`,
+          'OK'
+        );
+
+        return data;
+      }
+
+      await sleep(800);
+    }
+  }
+
+  input.addEventListener('change', () => {
+    if (input.files && input.files[0]) {
+      setFile(input.files[0]);
+    }
+  });
+
+  $('remove-file').addEventListener('click', () => {
+    if (processing) return;
+
+    selectedFile = null;
+    input.value = '';
+
+    fileInfo.hidden = true;
+    dropzone.classList.remove('has-file');
+
+    transcribeButton.disabled = true;
+
+    $('result-meta').textContent = 'ESPERANDO ARCHIVO…';
+    $('system-status').textContent = 'SISTEMA LISTO';
+
+    setProgress(0, 'Selecciona un archivo para comenzar.');
+  });
+
+  ['dragenter', 'dragover'].forEach((eventName) => {
+    dropzone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+
+      if (!processing) {
+        dropzone.classList.add('dragover');
+      }
+    });
+  });
+
+  ['dragleave', 'drop'].forEach((eventName) => {
+    dropzone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      dropzone.classList.remove('dragover');
+    });
+  });
+
+  dropzone.addEventListener('drop', (event) => {
+    if (processing) return;
+
+    const files = event.dataTransfer && event.dataTransfer.files;
+    if (files && files[0]) {
+      setFile(files[0]);
+    }
+  });
+
+  output.addEventListener('input', updateWordCount);
+
+  clearButton.addEventListener('click', () => {
+    if (processing) return;
+
+    output.value = '';
+    updateWordCount();
+
+    $('result-meta').textContent = 'RESULTADO LIMPIADO';
+
+    setProgress(0, 'Selecciona un archivo para comenzar.');
+    log('Se limpió el área de resultado.');
+  });
+
+  copyButton.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(output.value);
+      log('Texto copiado al portapapeles.', 'OK');
+    } catch (_) {
+      output.focus();
+      output.select();
+
+      const copied = document.execCommand('copy');
+
+      log(
+        copied
+          ? 'Texto copiado al portapapeles.'
+          : 'No se pudo copiar automáticamente; selecciona el texto manualmente.',
+        copied ? 'OK' : 'WARN'
+      );
+    }
+  });
+
+  downloadButton.addEventListener('click', () => {
+    const blob = new Blob(
+      [output.value],
+      { type: 'text/plain;charset=utf-8' }
+    );
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    const base = (
+      selectedFile
+        ? selectedFile.name.replace(/\.[^.]+$/, '')
+        : 'transcripcion'
+    )
+      .replace(/[^\p{L}\p{N}_ -]/gu, '')
+      .trim() || 'transcripcion';
+
+    link.href = url;
+    link.download = `${base}.txt`;
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+    log('Descarga de TXT iniciada.', 'OK');
+  });
+
+  transcribeButton.addEventListener('click', async () => {
+    if (!selectedFile || processing) return;
+
+    setBusy(true);
+    lastSelectedRuntime = '';
+
+    output.value = '';
+    updateWordCount();
+
+    $('system-status').textContent = 'SUBIENDO ARCHIVO';
+    $('progress-stage').textContent = 'SUBIDA';
+    $('result-meta').textContent =
+      `PREPARANDO: ${selectedFile.name}`;
+
+    setProgress(0, 'Preparando la subida del archivo…');
+
+    log(
+      `Iniciando envío de ${selectedFile.name} ` +
+      `(${formatBytes(selectedFile.size)}) a Flask…`
+    );
+
+    const form = new FormData();
+
+    form.append('file', selectedFile, selectedFile.name);
+    form.append('model', $('model-choice').value);
+    form.append('language', $('language-choice').value);
+
+    try {
+      const started = await uploadForJob(form);
+
+      if (!started.job_id) {
+        throw new Error(
+          'Flask no devolvió el identificador del trabajo. ' +
+          'Comprueba que el backend esté actualizado.'
+        );
+      }
+
+      setProgress(
+        5,
+        'Archivo recibido. Preparando modelo y procesamiento…',
+        true
+      );
+
+      log(
+        'Archivo recibido por Flask. ' +
+        'El procesamiento continúa en segundo plano.',
+        'OK'
+      );
+
+      await pollJob(started.job_id);
+
+    } catch (error) {
+      $('system-status').textContent = 'ERROR DE TRANSCRIPCIÓN';
+      $('progress-stage').textContent = 'ERROR';
+      $('result-meta').textContent =
+        'NO SE COMPLETÓ LA TRANSCRIPCIÓN';
+
+      setProgress(0, error.message);
+      log(error.message, 'ERROR');
+
+      alert(error.message);
+
+    } finally {
+      setBusy(false);
+    }
+  });
+
+  updateWordCount();
+  checkBackend();
+})();

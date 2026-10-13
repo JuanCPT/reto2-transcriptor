@@ -1,0 +1,4 @@
+Flask>=3.0,<4.0
+Flask-Cors>=4.0,<6.0
+av>=19,<20
+faster-whisper @ https://github.com/SYSTRAN/faster-whisper/archive/refs/heads/master.tar.gz

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Transcribe archivos de audio y video con YT Transcriptor Matrix Edition.">
+  <title>YT Transcriptor // Matrix Edition</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/app.js" defer></script>
+</head>
+<body>
+  <div class="matrix-grid" aria-hidden="true"></div>
+  <header class="topbar">
+    <div class="brand-mark" aria-hidden="true">YT<span>_</span></div>
+    <div>
+      <p class="eyebrow">SPEECH PROCESSING SYSTEM</p>
+      <h1>YT TRANSCRIPTOR <span>// MATRIX EDITION</span></h1>
+    </div>
+    <div class="system-state"><span class="led"></span><span id="system-status">SISTEMA LISTO</span></div>
+  </header>
+
+  <main class="layout">
+    <section class="panel source-panel">
+      <div class="panel-heading"><span class="step">01</span><h2>ARCHIVO DE AUDIO O VIDEO</h2></div>
+      <label class="dropzone" id="dropzone" for="media-file">
+        <input id="media-file" type="file" accept="audio/*,video/*,.mp3,.mp4,.m4a,.wav,.webm,.mkv,.ogg,.aac,.flac,.wma,.3gp">
+        <span class="upload-icon" aria-hidden="true">⇧</span>
+        <strong>Selecciona o arrastra tu archivo</strong>
+        <span class="muted">MP3 · WAV · M4A · MP4 · WEBM · MKV y otros formatos compatibles</span>
+        <span class="choose-file">EXAMINAR ARCHIVOS</span>
+      </label>
+      <div class="file-info" id="file-info" hidden>
+        <span class="file-symbol" aria-hidden="true">▣</span>
+        <div class="file-details"><strong id="file-name"></strong><span class="muted" id="file-size"></span></div>
+        <button class="icon-button" type="button" id="remove-file" aria-label="Quitar archivo" title="Quitar archivo">×</button>
+      </div>
+
+      <div class="panel-heading subheading"><span class="step">02</span><h2>CONFIGURACIÓN</h2></div>
+      <div class="settings-grid">
+        <label>MODELO DE WHISPER
+          <select id="model-choice">
+            <option value="auto" selected>Auto — adapta el equipo</option>
+            <option value="tiny">tiny — muy ligero</option>
+            <option value="base">base — ligero</option>
+            <option value="small">small — equilibrado</option>
+            <option value="medium">medium — más preciso</option>
+            <option value="large-v3">large-v3 — máxima precisión, más recursos</option>
+          </select>
+        </label>
+        <label>IDIOMA DEL AUDIO
+          <select id="language-choice">
+            <option value="es" selected>Español</option>
+            <option value="en">Inglés</option>
+            <option value="pt">Portugués</option>
+            <option value="fr">Francés</option>
+            <option value="auto">Detectar automáticamente</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="panel-heading subheading"><span class="step">03</span><h2>PROCESAMIENTO</h2></div>
+      <div class="progress-block">
+        <div class="progress-label"><span id="progress-stage">LISTO</span><span id="progress-text">0%</span></div>
+        <div class="progress-track" role="progressbar" aria-label="Progreso de transcripción" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+        <p class="muted small" id="progress-note">Selecciona un archivo para comenzar.</p>
+      </div>
+      <button class="primary-button" id="transcribe-button" type="button" disabled><span aria-hidden="true">▶</span> INICIAR TRANSCRIPCIÓN</button>
+      <p class="privacy-note">Los archivos se procesarán en el equipo servidor configurado para esta práctica.</p>
+    </section>
+
+    <section class="panel output-panel">
+      <div class="panel-heading"><span class="step">04</span><h2>RESULTADO DE TRANSCRIPCIÓN</h2><span class="word-counter" id="word-count">0 palabras</span></div>
+      <div class="result-meta" id="result-meta">ESPERANDO ARCHIVO…</div>
+      <textarea id="transcript-output" placeholder="El texto transcrito aparecerá aquí…" spellcheck="true" aria-label="Texto de la transcripción"></textarea>
+      <div class="result-actions">
+        <button class="secondary-button" id="copy-button" type="button" disabled>⧉ COPIAR TEXTO</button>
+        <button class="secondary-button" id="download-button" type="button" disabled>↓ DESCARGAR TXT</button>
+        <button class="secondary-button subtle-button" id="clear-button" type="button">LIMPIAR</button>
+      </div>
+      <div class="terminal-log">
+        <div class="terminal-title"><span class="led"></span> REGISTRO DEL SISTEMA</div>
+        <div id="log-output" aria-live="polite"><p><span class="log-time">[BOOT]</span> Interfaz Matrix inicializada.</p><p><span class="log-time">[INFO]</span> Backend de transcripción pendiente de conexión.</p></div>
+      </div>
+    </section>
+  </main>
+  <footer><span>YT TRANSCRIPTOR // MATRIX EDITION</span><span>ENTORNO LOCAL · RETO 2 UVEG</span></footer>
+</body>
+</html>
