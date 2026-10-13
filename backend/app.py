@@ -47,7 +47,7 @@ JOB_RETENTION_SECONDS = 60 * 60
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
-CORS(app, resources={r"/api/*": {"origins": ["http://localhost", "http://127.0.0.1"]}})
+CORS(app, resources={r"/api/*": {"origins": ["http://localhost", "http://127.0.0.1", "http://transcriptor.test"]}})
 
 # Keep at most one model resident: better for PCs with limited RAM/VRAM.
 _model = None
