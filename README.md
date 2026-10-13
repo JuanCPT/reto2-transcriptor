@@ -112,14 +112,17 @@ El servicio estará disponible localmente en:
 
 Mantén abierta la terminal mientras utilices la aplicación, ya que ahí se ejecuta el backend.
 
-## 7. Preparación del frontend con XAMPP
+## 7. Configuración de Apache y Virtual Host
 
-1. Inicia Apache desde el panel de control de XAMPP.
-2. Copia el contenido de la carpeta `frontend` del repositorio dentro de:
+Para servir la interfaz web se utilizó Apache, incluido en XAMPP, en un entorno local de Windows.
 
-   `C:\xampp\htdocs\transcriptor`
+### 7.1. Mapeo de directorios
 
-3. Comprueba que el archivo `index.html` se encuentre directamente en esa carpeta:
+El frontend del proyecto se encuentra en la siguiente ruta física:
+
+`C:\xampp\htdocs\transcriptor`
+
+Apache utiliza el directorio anterior como raíz documental del Virtual Host. La estructura principal es:
 
 ```text
 C:\xampp\htdocs\transcriptor\
@@ -128,13 +131,76 @@ C:\xampp\htdocs\transcriptor\
 └── js\
 ```
 
-4. Abre el navegador y accede a:
+### 7.2. Configuración del Virtual Host
 
-   `http://localhost/transcriptor/`
+La configuración se incorporó en el archivo:
 
-5. Verifica que el backend siga ejecutándose en la terminal.
+`C:\xampp\apache\conf\extra\httpd-vhosts.conf`
 
-**Importante:** Apache sirve la interfaz web y Flask ejecuta el procesamiento de las transcripciones. Ambos servicios deben estar activos para utilizar la aplicación completa.
+El bloque configurado es:
+
+```apache
+<VirtualHost *:80>
+    ServerName transcriptor.test
+
+    DocumentRoot "C:/xampp/htdocs/transcriptor"
+
+    <Directory "C:/xampp/htdocs/transcriptor">
+        Options FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    ErrorLog "logs/transcriptor-error.log"
+    CustomLog "logs/transcriptor-access.log" common
+</VirtualHost>
+```
+
+También se habilitó la carga de la configuración desde `httpd.conf` mediante la directiva:
+
+```apache
+Include conf/extra/httpd-vhosts.conf
+```
+
+### 7.3. Resolución del nombre local
+
+En el archivo de Windows `C:\Windows\System32\drivers\etc\hosts` se agregó la entrada:
+
+```text
+127.0.0.1 transcriptor.test
+```
+
+Esta entrada permite acceder al sitio mediante un nombre local sin necesidad de publicarlo en internet.
+
+### 7.4. Puertos utilizados
+
+- **Apache:** puerto 80, utilizado para servir la interfaz web.
+- **Flask:** puerto 5000, utilizado para el servicio de transcripción.
+- **API local:** `http://127.0.0.1:5000`.
+
+La interfaz se abre mediante:
+
+`http://transcriptor.test/`
+
+### 7.5. Verificación del funcionamiento
+
+La configuración de Apache se validó con el comando:
+
+```bat
+C:\xampp\apache\bin\httpd.exe -t
+```
+
+El resultado obtenido fue `Syntax OK`.
+
+Posteriormente, se reinició Apache desde el panel de XAMPP y se accedió a `http://transcriptor.test/`. Se verificó que la interfaz mostrara el estado de conexión con el backend.
+
+El servicio Flask también se comprobó mediante el endpoint:
+
+`http://127.0.0.1:5000/api/health`
+
+La respuesta confirmó que el servicio estaba activo y que `faster-whisper` se encontraba disponible. Finalmente, se realizó una transcripción de prueba y se descargó el archivo de texto generado.
+
+La ejecución se completó utilizando el modelo `base` en CPU con configuración `int8`, debido a que las bibliotecas CUDA necesarias no estaban disponibles en el entorno de prueba.
 
 ## 8. Endpoints de la API
 
